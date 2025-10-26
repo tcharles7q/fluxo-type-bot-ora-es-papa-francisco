@@ -1,0 +1,5 @@
+{
+  "name": "Conversion Funnel Chat",
+  "description": "A WhatsApp-style chat interface that guides users through a marketing funnel for a religious book, featuring automated messages, audio clips, and a final call-to-action.",
+  "requestFramePermissions": []
+}
