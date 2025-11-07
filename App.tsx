@@ -4,44 +4,48 @@ import { BOT_AVATAR, BOT_NAME, INITIAL_FUNNEL, YES_BRANCH, NO_BRANCH, MAIN_FUNNE
 import ChatMessage from './components/ChatMessage';
 import TypingIndicator from './components/TypingIndicator';
 
-// Create the initial message to be displayed immediately on load.
-const firstAudioStep = INITIAL_FUNNEL[0];
-if (!firstAudioStep || firstAudioStep.type !== MessageType.AUDIO || !firstAudioStep.audioUrl) {
-  throw new Error("Initial funnel must start with an audio step with an audioUrl.");
-}
-const initialMessage: Message = {
-  id: Date.now(),
-  type: MessageType.AUDIO,
-  from: 'bot',
-  audioUrl: firstAudioStep.audioUrl,
-};
+// Create initial messages for the static welcome screen
+const initialMessages: Message[] = [
+  {
+    id: Date.now(),
+    type: MessageType.AUDIO,
+    from: 'bot',
+    audioUrl: INITIAL_FUNNEL[0].audioUrl, // Assumes the first step is audio
+  },
+  {
+    id: Date.now() + 1,
+    type: MessageType.OPTIONS,
+    from: 'bot',
+  }
+];
 
 const App: React.FC = () => {
-  // Pre-populate the messages state with the first audio message.
-  const [messages, setMessages] = useState<Message[]>([initialMessage]);
-  const [currentFunnel, setCurrentFunnel] = useState<FunnelStep[]>(INITIAL_FUNNEL);
-  // Start the funnel from the second step (index 1) since the first is already displayed.
-  const [stepIndex, setStepIndex] = useState(1);
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [currentFunnel, setCurrentFunnel] = useState<FunnelStep[]>([]);
+  const [stepIndex, setStepIndex] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
   const [autoplayAudioId, setAutoplayAudioId] = useState<number | null>(null);
+  const [isChatStarted, setIsChatStarted] = useState(false);
 
   const notificationRef = useRef<HTMLAudioElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    if (mainRef.current) {
+    if (mainRef.current && isChatStarted) {
       mainRef.current.scrollTop = 0;
     }
-  }, []);
+  }, [isChatStarted]);
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isTyping]);
+    if (isChatStarted) {
+      scrollToBottom();
+    }
+  }, [messages, isTyping, isChatStarted]);
 
   const playNotification = useCallback(() => {
     if (notificationRef.current) {
@@ -78,12 +82,8 @@ const App: React.FC = () => {
             break;
           case MessageType.AUDIO:
             if (step.audioUrl) {
-              const isFirstWelcomeAudio = currentFunnel === INITIAL_FUNNEL && stepIndex === 0;
               const newMessage = addMessage(MessageType.AUDIO, 'bot', undefined, undefined, step.audioUrl);
-              // Only autoplay if it's not the very first audio message
-              if (!isFirstWelcomeAudio) {
-                setAutoplayAudioId(newMessage.id);
-              }
+              setAutoplayAudioId(newMessage.id);
             }
             break;
           case MessageType.OPTIONS:
@@ -108,10 +108,13 @@ const App: React.FC = () => {
   }, [stepIndex, currentFunnel, addMessage, playNotification]);
   
   useEffect(() => {
-    processStep();
+    if (currentFunnel.length > 0) {
+      processStep();
+    }
   }, [stepIndex, currentFunnel, processStep]);
 
   const handleOptionClick = (option: 'yes' | 'no') => {
+    setIsChatStarted(true);
     setMessages(prev => prev.filter(msg => msg.type !== MessageType.OPTIONS));
     const userResponse = option === 'yes' ? '✅ Sim, acredito' : '🤔 Ainda tenho dúvidas';
     addMessage(MessageType.USER_RESPONSE, 'user', userResponse);
@@ -120,22 +123,19 @@ const App: React.FC = () => {
     
     setTimeout(() => {
       setCurrentFunnel(nextFunnel);
-      setStepIndex(0);
+      setStepIndex(0); // This will trigger the processStep useEffect
     }, 500);
   };
 
   const handleCTAClick = () => {
     const ctaMessage = messages.find(msg => msg.type === MessageType.CTA);
     
-    // Remove the CTA button
     setMessages(prev => prev.filter(msg => msg.type !== MessageType.CTA));
 
-    // Add a user response message
     if (ctaMessage?.content) {
       addMessage(MessageType.USER_RESPONSE, 'user', ctaMessage.content as string);
     }
     
-    // Continue the funnel
     setTimeout(() => {
       setStepIndex(prev => prev + 1);
     }, 500);
@@ -151,8 +151,15 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main ref={mainRef} className="flex-1 overflow-y-auto p-2 sm:p-4 pt-20 pb-20">
-        <div className="max-w-3xl mx-auto">
+      <main
+        ref={mainRef}
+        className={`flex-1 pt-20 ${
+          isChatStarted
+            ? 'overflow-y-auto p-2 sm:p-4 pb-20'
+            : 'flex flex-col justify-center p-4'
+        }`}
+      >
+        <div className="max-w-3xl mx-auto w-full">
           {messages.map((msg) => {
               const shouldAutoplay = msg.type === MessageType.AUDIO && msg.id === autoplayAudioId;
               return (
