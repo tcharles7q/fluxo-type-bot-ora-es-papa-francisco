@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Message, MessageType, FunnelStep } from './types';
 import { BOT_AVATAR, BOT_NAME, INITIAL_FUNNEL, YES_BRANCH, NO_BRANCH, MAIN_FUNNEL, NOTIFICATION_AUDIO, REDIRECT_URL } from './constants';
@@ -10,12 +9,18 @@ const App: React.FC = () => {
   const [currentFunnel, setCurrentFunnel] = useState<FunnelStep[]>(INITIAL_FUNNEL);
   const [stepIndex, setStepIndex] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
-  const [showCTA, setShowCTA] = useState(false);
+  const [autoplayAudioId, setAutoplayAudioId] = useState<number | null>(null);
+  const [isFirstAudio, setIsFirstAudio] = useState(true);
 
-  const audioRef = useRef<HTMLAudioElement>(null);
   const notificationRef = useRef<HTMLAudioElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+    }
+  }, []);
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -31,15 +36,10 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const playAudio = useCallback((src: string) => {
-    if (audioRef.current) {
-      audioRef.current.src = src;
-      audioRef.current.play().catch(e => console.error("Audio play failed:", e));
-    }
-  }, []);
-  
-  const addMessage = useCallback((type: MessageType, from: 'bot' | 'user', content?: string, imageUrl?: string, audioUrl?: string) => {
-    setMessages(prev => [...prev, { id: Date.now(), type, from, content, imageUrl, audioUrl }]);
+  const addMessage = useCallback((type: MessageType, from: 'bot' | 'user', content?: string, imageUrl?: string, audioUrl?: string): Message => {
+    const newMessage: Message = { id: Date.now() + Math.random(), type, from, content, imageUrl, audioUrl };
+    setMessages(prev => [...prev, newMessage]);
+    return newMessage;
   }, []);
 
 
@@ -64,15 +64,20 @@ const App: React.FC = () => {
             addMessage(MessageType.IMAGE, 'bot', undefined, step.imageUrl);
             break;
           case MessageType.AUDIO:
-             addMessage(MessageType.AUDIO, 'bot', undefined, undefined, step.audioUrl);
-             if (step.audioUrl) playAudio(step.audioUrl);
+            if (step.audioUrl) {
+              const newMessage = addMessage(MessageType.AUDIO, 'bot', undefined, undefined, step.audioUrl);
+              if (isFirstAudio) {
+                setIsFirstAudio(false);
+              } else {
+                setAutoplayAudioId(newMessage.id);
+              }
+            }
             break;
           case MessageType.OPTIONS:
-            setShowOptions(true);
+            addMessage(MessageType.OPTIONS, 'bot');
             advanceStep = false;
             break;
           case MessageType.CTA:
-            setShowCTA(true);
             addMessage(MessageType.CTA, 'bot', step.content);
             break;
           case MessageType.REDIRECT:
@@ -86,14 +91,14 @@ const App: React.FC = () => {
         }
       }, 1500); // Typing indicator duration
     }, step.delay * 1000);
-  }, [stepIndex, currentFunnel, addMessage, playAudio, playNotification]);
+  }, [stepIndex, currentFunnel, addMessage, playNotification, isFirstAudio]);
   
   useEffect(() => {
     processStep();
   }, [stepIndex, currentFunnel, processStep]);
 
   const handleOptionClick = (option: 'yes' | 'no') => {
-    setShowOptions(false);
+    setMessages(prev => prev.filter(msg => msg.type !== MessageType.OPTIONS));
     const userResponse = option === 'yes' ? 'SIM' : 'NÃO';
     addMessage(MessageType.USER_RESPONSE, 'user', userResponse);
 
@@ -115,35 +120,29 @@ const App: React.FC = () => {
         <img src={BOT_AVATAR} alt="Bot Avatar" className="w-10 h-10 rounded-full mr-3" />
         <div>
           <h1 className="font-semibold text-lg">{BOT_NAME}</h1>
-          <p className="text-xs text-gray-200">online</p>
+          <p className="text-xs text-gray-200">{isTyping ? 'digitando...' : 'online'}</p>
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 pt-20 pb-24">
+      <main ref={mainRef} className="flex-1 overflow-y-auto p-2 sm:p-4 pt-20 pb-20">
         <div className="max-w-3xl mx-auto">
-          {messages.map((msg) => (
-            <ChatMessage key={msg.id} message={msg} onCtaClick={handleCTAClick} />
-          ))}
+          {messages.map((msg) => {
+              const shouldAutoplay = msg.type === MessageType.AUDIO && msg.id === autoplayAudioId;
+              return (
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  onCtaClick={handleCTAClick}
+                  onOptionClick={handleOptionClick}
+                  autoplay={shouldAutoplay}
+                />
+              );
+           })}
           {isTyping && <TypingIndicator avatar={BOT_AVATAR} />}
           <div ref={chatEndRef} />
         </div>
       </main>
 
-      <footer className="fixed bottom-0 w-full bg-transparent p-2">
-        <div className="max-w-3xl mx-auto">
-          {showOptions && (
-            <div className="flex justify-center gap-4">
-              <button onClick={() => handleOptionClick('yes')} className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 transform hover:scale-105">
-                SIM 👍
-              </button>
-              <button onClick={() => handleOptionClick('no')} className="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-300 transform hover:scale-105">
-                NÃO 👎
-              </button>
-            </div>
-          )}
-        </div>
-      </footer>
-      <audio ref={audioRef} style={{ display: 'none' }} />
       <audio ref={notificationRef} src={NOTIFICATION_AUDIO} style={{ display: 'none' }} preload="auto" />
     </div>
   );
