@@ -4,17 +4,30 @@ import { BOT_AVATAR, BOT_NAME, INITIAL_FUNNEL, YES_BRANCH, NO_BRANCH, MAIN_FUNNE
 import ChatMessage from './components/ChatMessage';
 import TypingIndicator from './components/TypingIndicator';
 
+// Create the initial message to be displayed immediately on load.
+const firstAudioStep = INITIAL_FUNNEL[0];
+if (!firstAudioStep || firstAudioStep.type !== MessageType.AUDIO || !firstAudioStep.audioUrl) {
+  throw new Error("Initial funnel must start with an audio step with an audioUrl.");
+}
+const initialMessage: Message = {
+  id: Date.now(),
+  type: MessageType.AUDIO,
+  from: 'bot',
+  audioUrl: firstAudioStep.audioUrl,
+};
+
 const App: React.FC = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Pre-populate the messages state with the first audio message.
+  const [messages, setMessages] = useState<Message[]>([initialMessage]);
   const [currentFunnel, setCurrentFunnel] = useState<FunnelStep[]>(INITIAL_FUNNEL);
-  const [stepIndex, setStepIndex] = useState(0);
+  // Start the funnel from the second step (index 1) since the first is already displayed.
+  const [stepIndex, setStepIndex] = useState(1);
   const [isTyping, setIsTyping] = useState(false);
   const [autoplayAudioId, setAutoplayAudioId] = useState<number | null>(null);
 
   const notificationRef = useRef<HTMLAudioElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const isFirstAudioRef = useRef(true);
 
   useEffect(() => {
     if (mainRef.current) {
@@ -65,10 +78,10 @@ const App: React.FC = () => {
             break;
           case MessageType.AUDIO:
             if (step.audioUrl) {
+              const isFirstWelcomeAudio = currentFunnel === INITIAL_FUNNEL && stepIndex === 0;
               const newMessage = addMessage(MessageType.AUDIO, 'bot', undefined, undefined, step.audioUrl);
-              if (isFirstAudioRef.current) {
-                isFirstAudioRef.current = false;
-              } else {
+              // Only autoplay if it's not the very first audio message
+              if (!isFirstWelcomeAudio) {
                 setAutoplayAudioId(newMessage.id);
               }
             }

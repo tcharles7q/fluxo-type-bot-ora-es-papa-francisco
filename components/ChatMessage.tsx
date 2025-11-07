@@ -29,7 +29,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onCtaClick, onOption
   const renderContent = () => {
     switch (message.type) {
       case MessageType.IMAGE:
-        return <img src={message.imageUrl} alt="content" className="rounded-lg max-w-xs md:max-w-sm mt-2" />;
+        return <img src={message.imageUrl} alt="content" className="rounded-lg max-w-full h-auto" />;
       case MessageType.AUDIO:
         return message.audioUrl ? <AudioPlayer id={message.id} src={message.audioUrl} autoplay={autoplay} /> : null;
       case MessageType.CTA:
