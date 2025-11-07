@@ -10,11 +10,11 @@ const App: React.FC = () => {
   const [stepIndex, setStepIndex] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
   const [autoplayAudioId, setAutoplayAudioId] = useState<number | null>(null);
-  const [isFirstAudio, setIsFirstAudio] = useState(true);
 
   const notificationRef = useRef<HTMLAudioElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
+  const isFirstAudioRef = useRef(true);
 
   useEffect(() => {
     if (mainRef.current) {
@@ -66,8 +66,8 @@ const App: React.FC = () => {
           case MessageType.AUDIO:
             if (step.audioUrl) {
               const newMessage = addMessage(MessageType.AUDIO, 'bot', undefined, undefined, step.audioUrl);
-              if (isFirstAudio) {
-                setIsFirstAudio(false);
+              if (isFirstAudioRef.current) {
+                isFirstAudioRef.current = false;
               } else {
                 setAutoplayAudioId(newMessage.id);
               }
@@ -79,6 +79,7 @@ const App: React.FC = () => {
             break;
           case MessageType.CTA:
             addMessage(MessageType.CTA, 'bot', step.content);
+            advanceStep = false; // Pause the funnel until the user clicks
             break;
           case MessageType.REDIRECT:
             window.location.href = REDIRECT_URL;
@@ -91,7 +92,7 @@ const App: React.FC = () => {
         }
       }, 1500); // Typing indicator duration
     }, step.delay * 1000);
-  }, [stepIndex, currentFunnel, addMessage, playNotification, isFirstAudio]);
+  }, [stepIndex, currentFunnel, addMessage, playNotification]);
   
   useEffect(() => {
     processStep();
@@ -99,7 +100,7 @@ const App: React.FC = () => {
 
   const handleOptionClick = (option: 'yes' | 'no') => {
     setMessages(prev => prev.filter(msg => msg.type !== MessageType.OPTIONS));
-    const userResponse = option === 'yes' ? 'SIM' : 'NÃO';
+    const userResponse = option === 'yes' ? '✅ Sim, acredito' : '🤔 Ainda tenho dúvidas';
     addMessage(MessageType.USER_RESPONSE, 'user', userResponse);
 
     const nextFunnel = option === 'yes' ? [...YES_BRANCH, ...MAIN_FUNNEL] : [...NO_BRANCH, ...MAIN_FUNNEL];
@@ -111,7 +112,20 @@ const App: React.FC = () => {
   };
 
   const handleCTAClick = () => {
-    window.location.href = REDIRECT_URL;
+    const ctaMessage = messages.find(msg => msg.type === MessageType.CTA);
+    
+    // Remove the CTA button
+    setMessages(prev => prev.filter(msg => msg.type !== MessageType.CTA));
+
+    // Add a user response message
+    if (ctaMessage?.content) {
+      addMessage(MessageType.USER_RESPONSE, 'user', ctaMessage.content as string);
+    }
+    
+    // Continue the funnel
+    setTimeout(() => {
+      setStepIndex(prev => prev + 1);
+    }, 500);
   }
 
   return (
