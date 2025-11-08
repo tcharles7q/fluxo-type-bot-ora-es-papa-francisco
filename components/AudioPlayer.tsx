@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { BOT_AVATAR } from '../constants';
 
 interface AudioPlayerProps {
   id: number;
   src: string;
   autoplay?: boolean;
+  onEnded?: () => void;
 }
 
 const formatTime = (time: number) => {
@@ -16,12 +16,11 @@ const formatTime = (time: number) => {
 
 const AUDIO_PLAY_EVENT = 'audio-player-play';
 
-const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, autoplay = false }) => {
+const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, autoplay = false, onEnded }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(new Audio(src));
-  const progressBarRef = useRef<HTMLInputElement>(null);
   const animationRef = useRef<number | null>(null);
 
   const play = () => {
@@ -53,9 +52,6 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, autoplay = false }) 
     const setAudioData = () => {
         if (audio.duration !== Infinity) {
             setDuration(audio.duration);
-            if(progressBarRef.current) {
-                progressBarRef.current.max = String(audio.duration);
-            }
         }
     };
 
@@ -65,6 +61,9 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, autoplay = false }) 
     
     const handleEnded = () => {
         setIsPlaying(false);
+        // Reset current time to the beginning so the dot goes back
+        setCurrentTime(0);
+        onEnded?.();
     };
 
     audio.addEventListener('loadeddata', setAudioData);
@@ -87,7 +86,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, autoplay = false }) 
       audio.removeEventListener('ended', handleEnded);
       document.removeEventListener(AUDIO_PLAY_EVENT, handleOtherPlayerPlay as EventListener);
     };
-  }, [id]);
+  }, [id, onEnded]);
 
   useEffect(() => {
     if (autoplay) {
@@ -101,84 +100,48 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, autoplay = false }) 
 
 
   const whilePlaying = () => {
-    if (progressBarRef.current) {
-      progressBarRef.current.value = String(audioRef.current.currentTime);
-      changePlayerCurrentTime();
-    }
+    setCurrentTime(audioRef.current.currentTime);
     animationRef.current = requestAnimationFrame(whilePlaying);
   };
-
-
-  const changeRange = () => {
-    if (progressBarRef.current) {
-      audioRef.current.currentTime = Number(progressBarRef.current.value);
-      changePlayerCurrentTime();
-    }
-  };
-
-  const changePlayerCurrentTime = () => {
-    if (progressBarRef.current && duration > 0) {
-        const value = (Number(progressBarRef.current.value) / duration) * 100;
-        progressBarRef.current.style.setProperty('--seek-before-width', `${value}%`);
-        setCurrentTime(Number(progressBarRef.current.value));
-    }
-  };
   
+  const handleKeyPress = (e: React.KeyboardEvent, action: () => void) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        action();
+    }
+  };
+
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
   return (
-    <div className="flex items-center bg-gray-100 p-2 rounded-lg w-full max-w-xs">
-      <button onClick={togglePlayPause} className="p-2">
+    <div 
+        className="flex items-center w-full max-w-xs cursor-pointer"
+        role="button"
+        tabIndex={0}
+        onClick={togglePlayPause}
+        onKeyPress={(e) => handleKeyPress(e, togglePlayPause)}
+        aria-label={isPlaying ? "Pausar áudio" : "Reproduzir áudio"}
+    >
+      <div className="flex-shrink-0 mr-3">
         {isPlaying ? (
-           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+           <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 00-1 1v2a1 1 0 102 0V9a1 1 0 00-1-1zm5 0a1 1 0 00-1 1v2a1 1 0 102 0V9a1 1 0 00-1-1z" clipRule="evenodd" />
+           </svg>
         ) : (
-           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+           <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8.002v3.996a1 1 0 001.555.832l3.197-2.001a1 1 0 000-1.664l-3.197-1.999z" clipRule="evenodd" />
+           </svg>
         )}
-      </button>
-      <div className="flex-1 flex flex-col justify-center mx-2">
-        <input 
-            type="range"
-            ref={progressBarRef}
-            defaultValue="0"
-            onChange={changeRange}
-            className="w-full h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
-            style={{'--seek-before-width': `${(currentTime && duration > 0 ? (currentTime / duration) * 100 : 0)}%`} as React.CSSProperties}
-        />
-        <style>{`
-          input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 12px;
-            width: 12px;
-            border-radius: 50%;
-            background-color: #10B981;
-            cursor: pointer;
-            margin-top: -5px;
-          }
-          input[type="range"]::-moz-range-thumb {
-            height: 12px;
-            width: 12px;
-            border-radius: 50%;
-            background-color: #10B981;
-            cursor: pointer;
-          }
-          input[type="range"] {
-            position: relative;
-            background: #e2e8f0;
-          }
-           input[type="range"]::before {
-             content: '';
-             position: absolute;
-             width: var(--seek-before-width);
-             height: 100%;
-             background: #10B981;
-             border-top-left-radius: 5px;
-             border-bottom-left-radius: 5px;
-             z-index: 0;
-           }
-        `}</style>
+      </div>
+      <div className="flex-1 flex flex-col justify-center">
+        <div className="relative w-full h-1 bg-gray-300 rounded-full">
+            <div className="absolute top-0 left-0 h-1 bg-green-500 rounded-full" style={{ width: `${progress}%` }}></div>
+            <div className="absolute h-3 w-3 bg-green-500 rounded-full -mt-1" style={{ left: `calc(${progress}% - 6px)` }}></div>
+        </div>
         <div className="text-xs text-gray-500 self-end mt-1">
-          {formatTime(currentTime)} / {formatTime(duration)}
+          {formatTime(duration)}
         </div>
       </div>
-      <img src={BOT_AVATAR} alt="avatar" className="w-10 h-10 rounded-full" />
     </div>
   );
 };
