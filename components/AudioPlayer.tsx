@@ -31,9 +31,12 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isVolumeVisible, setIsVolumeVisible] = useState(false);
-
+  const [playbackRate, setPlaybackRate] = useState(1);
+  
   const audioRef = useRef<HTMLAudioElement>(new Audio(src));
   const animationRef = useRef<number | null>(null);
+  
+  const availableSpeeds = [1, 1.5, 2];
 
   const whilePlaying = () => {
     setCurrentTime(audioRef.current.currentTime);
@@ -57,6 +60,14 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
 
   const togglePlayPause = () => {
     isPlaying ? pause() : play();
+  };
+
+  const changeSpeed = () => {
+    const currentIndex = availableSpeeds.indexOf(playbackRate);
+    const nextIndex = (currentIndex + 1) % availableSpeeds.length;
+    const newSpeed = availableSpeeds[nextIndex];
+    setPlaybackRate(newSpeed);
+    audioRef.current.playbackRate = newSpeed;
   };
 
   useEffect(() => {
@@ -129,11 +140,11 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
         className="flex-shrink-0 mr-3 cursor-pointer"
       >
         {isPlaying ? (
-           <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+           <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 00-1 1v2a1 1 0 102 0V9a1 1 0 00-1-1zm5 0a1 1 0 00-1 1v2a1 1 0 102 0V9a1 1 0 00-1-1z" clipRule="evenodd" />
            </svg>
         ) : (
-           <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+           <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-green-500" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8.002v3.996a1 1 0 001.555.832l3.197-2.001a1 1 0 000-1.664l-3.197-1.999z" clipRule="evenodd" />
            </svg>
         )}
@@ -155,8 +166,19 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
           <span>{formatTime(duration)}</span>
         </div>
       </div>
+      
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={changeSpeed}
+        onKeyPress={(e) => handleKeyPress(e, changeSpeed)}
+        className="flex-shrink-0 mx-3 flex items-center justify-center h-8 w-8 rounded-full bg-gray-200 text-sm font-bold text-gray-600 cursor-pointer transition-colors hover:bg-gray-300"
+        aria-label={`Mudar velocidade. Velocidade atual: ${playbackRate}x`}
+      >
+        {playbackRate}x
+      </div>
 
-      <div className="relative flex items-center ml-4">
+      <div className="relative flex items-center">
         <div
           role="button"
           tabIndex={0}
