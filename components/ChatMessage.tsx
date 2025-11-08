@@ -7,11 +7,10 @@ interface ChatMessageProps {
   message: Message;
   onCtaClick: () => void;
   onOptionClick: (option: 'yes' | 'no') => void;
-  autoplay?: boolean;
   onEnded?: () => void;
 }
 
-const ChatMessage: React.FC<ChatMessageProps> = ({ message, onCtaClick, onOptionClick, autoplay = false, onEnded }) => {
+const ChatMessage: React.FC<ChatMessageProps> = ({ message, onCtaClick, onOptionClick, onEnded }) => {
   const isBot = message.from === 'bot';
 
   if (message.type === MessageType.OPTIONS) {
@@ -50,7 +49,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onCtaClick, onOption
       case MessageType.IMAGE:
         return <img src={message.imageUrl} alt="content" className="rounded-lg max-w-full h-auto" />;
       case MessageType.AUDIO:
-        return message.audioUrl ? <AudioPlayer id={message.id} src={message.audioUrl} autoplay={autoplay} onEnded={onEnded} /> : null;
+        return message.audioUrl ? <AudioPlayer id={message.id} src={message.audioUrl} onEnded={onEnded} /> : null;
       case MessageType.CTA:
         return (
             <div 

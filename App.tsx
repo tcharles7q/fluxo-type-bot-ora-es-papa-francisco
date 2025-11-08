@@ -3,10 +3,8 @@ import { Message, MessageType, FunnelStep } from './types';
 import { BOT_AVATAR, BOT_NAME, INITIAL_FUNNEL, YES_BRANCH, NO_BRANCH, MAIN_FUNNEL, NOTIFICATION_AUDIO, REDIRECT_URL } from './constants';
 import ChatMessage from './components/ChatMessage';
 import TypingIndicator from './components/TypingIndicator';
-import CookieConsent from './components/CookieConsent';
 
 const META_PIXEL_ID = '1346056499414740';
-const COOKIE_CONSENT_KEY = 'cookie_consent_status';
 
 // Add fbq to the window interface for TypeScript
 declare global {
@@ -35,50 +33,31 @@ const App: React.FC = () => {
   const [currentFunnel, setCurrentFunnel] = useState<FunnelStep[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
-  const [autoplayAudioId, setAutoplayAudioId] = useState<number | null>(null);
   const [isChatStarted, setIsChatStarted] = useState(false);
   const [waitingForAudioId, setWaitingForAudioId] = useState<number | null>(null);
-  const [consentStatus, setConsentStatus] = useState<'granted' | 'denied' | 'pending'>('pending');
 
   const notificationRef = useRef<HTMLAudioElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
 
-  // --- Cookie Consent & Meta Pixel Logic ---
-  useEffect(() => {
-    const savedConsent = localStorage.getItem(COOKIE_CONSENT_KEY);
-    if (savedConsent === 'granted') {
-      setConsentStatus('granted');
-      initializePixel();
-    } else if (savedConsent === 'denied') {
-      setConsentStatus('denied');
-    }
-  }, []);
-
-  const initializePixel = () => {
+  // --- Meta Pixel Logic ---
+  const initializePixel = useCallback(() => {
     if (window.fbq) {
       window.fbq('init', META_PIXEL_ID);
       window.fbq('track', 'PageView');
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    initializePixel();
+  }, [initializePixel]);
   
   const trackPixelEvent = useCallback((eventName: string, params = {}) => {
-    if (consentStatus === 'granted' && window.fbq) {
+    if (window.fbq) {
       window.fbq('track', eventName, params);
     }
-  }, [consentStatus]);
-
-  const handleAcceptConsent = () => {
-    localStorage.setItem(COOKIE_CONSENT_KEY, 'granted');
-    setConsentStatus('granted');
-    initializePixel();
-  };
-
-  const handleDeclineConsent = () => {
-    localStorage.setItem(COOKIE_CONSENT_KEY, 'denied');
-    setConsentStatus('denied');
-  };
-  // --- End of Consent & Pixel Logic ---
+  }, []);
+  // --- End of Pixel Logic ---
 
   useEffect(() => {
     if (mainRef.current && isChatStarted) {
@@ -131,11 +110,11 @@ const App: React.FC = () => {
 
     const step = currentFunnel[stepIndex];
     const typingDuration = 1500; // ms
-    const stepDelay = step.delay * 1000; // ms
     
-    // Calculate timing: wait for (total delay - typing duration), then show typing indicator.
+    const stepDelay = step.delay * 1000; // ms
     const initialWait = Math.max(0, stepDelay - typingDuration);
     const typingTime = Math.min(stepDelay, typingDuration);
+
 
     let typingTimer: number;
     const mainTimer = setTimeout(() => {
@@ -156,7 +135,6 @@ const App: React.FC = () => {
           case MessageType.AUDIO:
             if (step.audioUrl) {
               const newMessage = addMessage(MessageType.AUDIO, 'bot', undefined, undefined, step.audioUrl);
-              setAutoplayAudioId(newMessage.id);
               setWaitingForAudioId(newMessage.id);
             }
             advanceStep = false; // Wait for audio to end
@@ -238,14 +216,12 @@ const App: React.FC = () => {
       >
         <div className="max-w-3xl mx-auto w-full">
           {messages.map((msg) => {
-              const shouldAutoplay = msg.type === MessageType.AUDIO && msg.id === autoplayAudioId;
               return (
                 <ChatMessage
                   key={msg.id}
                   message={msg}
                   onCtaClick={handleCTAClick}
                   onOptionClick={handleOptionClick}
-                  autoplay={shouldAutoplay}
                   onEnded={() => handleAudioEnded(msg.id)}
                 />
               );
@@ -256,7 +232,6 @@ const App: React.FC = () => {
       </main>
 
       <audio ref={notificationRef} src={NOTIFICATION_AUDIO} style={{ display: 'none' }} preload="auto" />
-      {consentStatus === 'pending' && <CookieConsent onAccept={handleAcceptConsent} onDecline={handleDeclineConsent} />}
     </div>
   );
 };
