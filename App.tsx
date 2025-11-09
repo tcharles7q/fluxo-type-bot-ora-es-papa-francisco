@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Message, MessageType, FunnelStep } from './types';
-import { BOT_AVATAR, BOT_NAME, INITIAL_FUNNEL, YES_BRANCH, NO_BRANCH, MAIN_FUNNEL, NOTIFICATION_AUDIO, REDIRECT_URL } from './constants';
+import { BOT_AVATAR, BOT_NAME, INITIAL_FUNNEL, YES_BRANCH, NO_BRANCH, MAIN_FUNNEL, NOTIFICATION_AUDIO, REDIRECT_URL, IMAGES_TO_PRELOAD } from './constants';
 import ChatMessage from './components/ChatMessage';
-import TypingIndicator from './components/TypingIndicator';
+import LoadingScreen from './components/LoadingScreen';
+import { preloadAudio } from './audio';
+import { preloadImage } from './images';
 
 const META_PIXEL_ID = '1346056499414740';
 
@@ -13,13 +15,24 @@ declare global {
   }
 }
 
-// Create initial messages for the static welcome screen
+// --- Preloading Logic ---
+const allFunnelSteps = [...INITIAL_FUNNEL, ...YES_BRANCH, ...NO_BRANCH, ...MAIN_FUNNEL];
+const uniqueAudioUrls = [...new Set(
+  allFunnelSteps
+    .filter(step => step.type === MessageType.AUDIO && step.audioUrl)
+    .map(step => step.audioUrl as string)
+)];
+if (NOTIFICATION_AUDIO) {
+    uniqueAudioUrls.push(NOTIFICATION_AUDIO);
+}
+// --- End of Preloading Logic ---
+
 const initialMessages: Message[] = [
   {
     id: Date.now(),
     type: MessageType.AUDIO,
     from: 'bot',
-    audioUrl: INITIAL_FUNNEL[0].audioUrl, // Assumes the first step is audio
+    audioUrl: INITIAL_FUNNEL[0].audioUrl,
   },
   {
     id: Date.now() + 1,
@@ -30,17 +43,30 @@ const initialMessages: Message[] = [
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [isLoading, setIsLoading] = useState(true);
   const [currentFunnel, setCurrentFunnel] = useState<FunnelStep[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
-  const [isTyping, setIsTyping] = useState(false);
   const [isChatStarted, setIsChatStarted] = useState(false);
-  const [waitingForAudioId, setWaitingForAudioId] = useState<number | null>(null);
 
   const notificationRef = useRef<HTMLAudioElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
 
-  // --- Meta Pixel Logic ---
+  useEffect(() => {
+    const preloadAssets = async () => {
+      const audioPromises = uniqueAudioUrls.map(url => preloadAudio(url));
+      const imagePromises = IMAGES_TO_PRELOAD.map(url => preloadImage(url));
+
+      await Promise.allSettled([...audioPromises, ...imagePromises]);
+      
+      setTimeout(() => {
+          setIsLoading(false);
+      }, 500);
+    };
+
+    preloadAssets();
+  }, []);
+
   const initializePixel = useCallback(() => {
     if (window.fbq) {
       window.fbq('init', META_PIXEL_ID);
@@ -57,7 +83,6 @@ const App: React.FC = () => {
       window.fbq('track', eventName, params);
     }
   }, []);
-  // --- End of Pixel Logic ---
 
   useEffect(() => {
     if (mainRef.current && isChatStarted) {
@@ -73,11 +98,13 @@ const App: React.FC = () => {
     if (isChatStarted) {
       scrollToBottom();
     }
-  }, [messages, isTyping, isChatStarted]);
+  }, [messages, isChatStarted]);
 
   const playNotification = useCallback(() => {
-    if (notificationRef.current) {
-      notificationRef.current.play().catch(e => console.error("Audio play failed:", e));
+    const audio = notificationRef.current;
+    if (audio) {
+      audio.currentTime = 0;
+      audio.play().catch(e => console.error("Audio play failed:", e));
     }
   }, []);
 
@@ -88,85 +115,51 @@ const App: React.FC = () => {
   }, [setMessages]);
 
   const advanceFunnel = useCallback(() => {
-    setWaitingForAudioId(null);
     setStepIndex(prev => prev + 1);
-  }, [setWaitingForAudioId, setStepIndex]);
+  }, []);
 
-  const handleAudioEnded = useCallback((messageId: number) => {
-    if (messageId === waitingForAudioId) {
-      advanceFunnel();
-    }
-  }, [waitingForAudioId, advanceFunnel]);
-
-  // This single useEffect handles the entire funnel progression logic,
-  // including delays, typing indicators, and message dispatching.
-  // It replaces the previous combination of useCallback and useEffect to prevent
-  // scheduling duplicate messages on re-renders and to ensure delays are respected.
   useEffect(() => {
-    // Guard conditions to prevent running the funnel logic unnecessarily.
-    if (!isChatStarted || currentFunnel.length === 0 || waitingForAudioId || stepIndex >= currentFunnel.length) {
+    if (!isChatStarted || currentFunnel.length === 0 || stepIndex >= currentFunnel.length) {
       return;
     }
 
     const step = currentFunnel[stepIndex];
-    const typingDuration = 1500; // ms
     
-    const stepDelay = step.delay * 1000; // ms
-    const initialWait = Math.max(0, stepDelay - typingDuration);
-    const typingTime = Math.min(stepDelay, typingDuration);
-
-
-    let typingTimer: number;
-    const mainTimer = setTimeout(() => {
-      setIsTyping(true);
-      playNotification();
-
-      typingTimer = setTimeout(() => {
-        setIsTyping(false);
-        let advanceStep = true;
-        
-        switch (step.type) {
-          case MessageType.TEXT:
-            addMessage(MessageType.TEXT, 'bot', step.content);
-            break;
-          case MessageType.IMAGE:
-            addMessage(MessageType.IMAGE, 'bot', undefined, step.imageUrl);
-            break;
-          case MessageType.AUDIO:
-            if (step.audioUrl) {
-              const newMessage = addMessage(MessageType.AUDIO, 'bot', undefined, undefined, step.audioUrl);
-              setWaitingForAudioId(newMessage.id);
-            }
-            advanceStep = false; // Wait for audio to end
-            break;
-          case MessageType.OPTIONS:
-            addMessage(MessageType.OPTIONS, 'bot');
-            advanceStep = false; // Wait for user input
-            break;
-          case MessageType.CTA:
-            addMessage(MessageType.CTA, 'bot', step.content);
-            trackPixelEvent('ViewContent');
-            advanceStep = false; // Wait for user click
-            break;
-          case MessageType.REDIRECT:
-            window.location.href = REDIRECT_URL;
-            advanceStep = false; // Stop execution
-            break;
+    playNotification();
+    let advanceImmediately = true;
+    
+    switch (step.type) {
+      case MessageType.TEXT:
+        addMessage(MessageType.TEXT, 'bot', step.content);
+        break;
+      case MessageType.IMAGE:
+        addMessage(MessageType.IMAGE, 'bot', undefined, step.imageUrl);
+        break;
+      case MessageType.AUDIO:
+        if (step.audioUrl) {
+          addMessage(MessageType.AUDIO, 'bot', undefined, undefined, step.audioUrl);
         }
+        advanceImmediately = false;
+        break;
+      case MessageType.OPTIONS:
+        addMessage(MessageType.OPTIONS, 'bot');
+        advanceImmediately = false;
+        break;
+      case MessageType.CTA:
+        addMessage(MessageType.CTA, 'bot', step.content);
+        trackPixelEvent('ViewContent');
+        advanceImmediately = false;
+        break;
+      case MessageType.REDIRECT:
+        window.location.href = REDIRECT_URL;
+        advanceImmediately = false;
+        break;
+    }
 
-        if (advanceStep) {
-          setStepIndex(prev => prev + 1);
-        }
-      }, typingTime);
-    }, initialWait);
-
-    // Cleanup function to clear timeouts if the component re-renders or unmounts.
-    // This is crucial to prevent duplicate messages.
-    return () => {
-      clearTimeout(mainTimer);
-      clearTimeout(typingTimer);
-    };
-  }, [isChatStarted, stepIndex, currentFunnel, waitingForAudioId, addMessage, playNotification, trackPixelEvent]);
+    if (advanceImmediately) {
+      advanceFunnel();
+    }
+  }, [isChatStarted, stepIndex, currentFunnel, addMessage, playNotification, trackPixelEvent, advanceFunnel]);
 
   const handleOptionClick = (option: 'yes' | 'no') => {
     setIsChatStarted(true);
@@ -194,44 +187,43 @@ const App: React.FC = () => {
     }
     
     setTimeout(advanceFunnel, 500);
+  };
+  
+  if (isLoading) {
+    return <LoadingScreen />;
   }
 
   return (
-    <div className="w-full h-screen bg-cover bg-center flex flex-col font-sans" style={{ backgroundImage: "url('https://i.postimg.cc/tggRvL69/fundo-whats-app.png')" }}>
-      <header className="bg-[#005E54] text-white p-3 flex items-center shadow-md fixed top-0 w-full z-10">
-        <img src={BOT_AVATAR} alt="Bot Avatar" className="w-10 h-10 rounded-full mr-3" />
+    <div className="flex flex-col h-screen bg-gray-100" style={{ backgroundImage: "url('https://i.postimg.cc/tggRvL69/fundo-whats-app.png')", backgroundSize: 'cover', backgroundPosition: 'center' }}>
+      <header className="bg-[#005E54] text-white p-3 flex items-center shadow-md sticky top-0 z-10 animate-fade-in">
+        <img src={BOT_AVATAR} alt="Bot Avatar" className="w-10 h-10 rounded-full mr-3 border-2 border-white" />
         <div>
-          <h1 className="font-semibold text-lg">{BOT_NAME}</h1>
-          <p className="text-xs text-gray-200">{isTyping ? 'digitando...' : 'online'}</p>
+          <h1 className="text-lg font-bold">{BOT_NAME}</h1>
+          <p className="text-sm opacity-90">online</p>
         </div>
       </header>
 
-      <main
-        ref={mainRef}
-        className={`flex-1 pt-20 ${
-          isChatStarted
-            ? 'overflow-y-auto p-2 sm:p-4 pb-20'
-            : 'flex flex-col justify-center p-4'
-        }`}
-      >
-        <div className="max-w-3xl mx-auto w-full">
-          {messages.map((msg) => {
-              return (
-                <ChatMessage
-                  key={msg.id}
-                  message={msg}
-                  onCtaClick={handleCTAClick}
-                  onOptionClick={handleOptionClick}
-                  onEnded={() => handleAudioEnded(msg.id)}
-                />
-              );
-           })}
-          {isTyping && <TypingIndicator avatar={BOT_AVATAR} />}
-          <div ref={chatEndRef} />
-        </div>
-      </main>
+      <main ref={mainRef} className={`flex-1 overflow-y-auto p-4 space-y-4 ${isChatStarted ? 'animate-fade-in-up' : ''}`}>
+        {messages.map((msg, index) => {
+             const isLastMessage = index === messages.length - 1;
+             const isBotAudio = msg.from === 'bot' && msg.type === MessageType.AUDIO;
+             const isFunnelActive = currentFunnel.length > 0 && stepIndex < currentFunnel.length;
 
-      <audio ref={notificationRef} src={NOTIFICATION_AUDIO} style={{ display: 'none' }} preload="auto" />
+            return (
+                <ChatMessage
+                    key={msg.id}
+                    message={msg}
+                    onCtaClick={handleCTAClick}
+                    onOptionClick={handleOptionClick}
+                    isFirstMessage={index === 0 && msg.type === MessageType.AUDIO}
+                    onEnded={isLastMessage && isBotAudio && isFunnelActive ? advanceFunnel : undefined}
+                />
+            );
+        })}
+        <div ref={chatEndRef} />
+      </main>
+      
+      <audio ref={notificationRef} src={NOTIFICATION_AUDIO} preload="auto" />
     </div>
   );
 };

@@ -4,6 +4,7 @@ interface AudioPlayerProps {
   id: number;
   src: string;
   onEnded?: () => void;
+  autoPlay?: boolean;
 }
 
 const formatTime = (time: number) => {
@@ -25,49 +26,71 @@ const VolumeIcon = ({ volume }: { volume: number }) => {
     return <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>;
 };
 
-const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
+const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded, autoPlay = false }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isVolumeVisible, setIsVolumeVisible] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(1);
+  const [hasEnded, setHasEnded] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(new Audio(src));
   const animationRef = useRef<number | null>(null);
-  
-  const availableSpeeds = [1, 1.5, 2];
 
   const whilePlaying = () => {
-    setCurrentTime(audioRef.current.currentTime);
-    animationRef.current = requestAnimationFrame(whilePlaying);
+    if (audioRef.current && !audioRef.current.ended) {
+      setCurrentTime(audioRef.current.currentTime);
+      animationRef.current = requestAnimationFrame(whilePlaying);
+    }
   };
 
   const play = () => {
+    if (isPlaying) return;
+    
+    if (hasEnded) {
+        setHasEnded(false);
+        audioRef.current.currentTime = 0;
+        setCurrentTime(0);
+    }
+
     const event = new CustomEvent(AUDIO_PLAY_EVENT, { detail: { id } });
     document.dispatchEvent(event);
 
-    audioRef.current.play().catch(e => console.error("Audio play failed:", e));
-    setIsPlaying(true);
-    animationRef.current = requestAnimationFrame(whilePlaying);
+    audioRef.current.play()
+      .then(() => {
+        setIsPlaying(true);
+        animationRef.current = requestAnimationFrame(whilePlaying);
+      })
+      .catch(e => {
+        console.error("Audio play failed (this is expected on first load until user interaction):", e);
+        setIsPlaying(false);
+      });
   };
 
   const pause = () => {
     audioRef.current.pause();
     setIsPlaying(false);
-    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+    }
   };
+  
+  useEffect(() => {
+    if (autoPlay) {
+      // Small delay to allow component to mount and avoid race conditions.
+      const timer = setTimeout(() => {
+        play();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+    // The play function is not memoized and would cause this to re-run.
+    // We only want this to run once based on the initial autoPlay prop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlay]);
 
   const togglePlayPause = () => {
     isPlaying ? pause() : play();
-  };
-
-  const changeSpeed = () => {
-    const currentIndex = availableSpeeds.indexOf(playbackRate);
-    const nextIndex = (currentIndex + 1) % availableSpeeds.length;
-    const newSpeed = availableSpeeds[nextIndex];
-    setPlaybackRate(newSpeed);
-    audioRef.current.playbackRate = newSpeed;
   };
 
   useEffect(() => {
@@ -75,12 +98,21 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
     audio.volume = volume;
     
     const setAudioData = () => {
-        if (audio.duration !== Infinity) setDuration(audio.duration);
+        if (audio.duration !== Infinity) {
+          setDuration(audio.duration);
+        }
     };
 
     const handleEnded = () => {
         setIsPlaying(false);
-        setCurrentTime(0);
+        setHasEnded(true);
+        if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+            animationRef.current = null;
+        }
+        if (isFinite(audio.duration)) {
+             setCurrentTime(audio.duration);
+        }
         onEnded?.();
     };
 
@@ -100,6 +132,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
       audio.removeEventListener('ended', handleEnded);
       document.removeEventListener(AUDIO_PLAY_EVENT, handleOtherPlayerPlay as EventListener);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, onEnded]);
 
   const handleKeyPress = (e: React.KeyboardEvent, action: () => void) => {
@@ -116,6 +149,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
     const newTime = (clickPosition / barWidth) * duration;
 
     if (isFinite(newTime)) {
+        if (hasEnded) setHasEnded(false);
         audioRef.current.currentTime = newTime;
         setCurrentTime(newTime);
     }
@@ -128,6 +162,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
   };
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const barColor = hasEnded ? 'bg-blue-500' : 'bg-green-500';
 
   return (
     <div className="flex items-center w-full max-w-sm">
@@ -137,17 +172,18 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
         onClick={togglePlayPause}
         onKeyPress={(e) => handleKeyPress(e, togglePlayPause)}
         aria-label={isPlaying ? "Pausar áudio" : "Reproduzir áudio"}
-        className="flex-shrink-0 mr-3 cursor-pointer"
+        className="relative flex-shrink-0 mr-3 cursor-pointer h-10 w-10 flex items-center justify-center"
       >
-        {isPlaying ? (
-           <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+        <div className={`absolute icon-transition ${isPlaying ? 'opacity-100' : 'opacity-0'}`}>
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 00-1 1v2a1 1 0 102 0V9a1 1 0 00-1-1zm5 0a1 1 0 00-1 1v2a1 1 0 102 0V9a1 1 0 00-1-1z" clipRule="evenodd" />
-           </svg>
-        ) : (
-           <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+          </svg>
+        </div>
+        <div className={`absolute icon-transition ${!isPlaying ? 'opacity-100' : 'opacity-0'}`}>
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8.002v3.996a1 1 0 001.555.832l3.197-2.001a1 1 0 000-1.664l-3.197-1.999z" clipRule="evenodd" />
-           </svg>
-        )}
+          </svg>
+        </div>
       </div>
       
       <div className="flex-1">
@@ -155,9 +191,9 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
           onClick={changePlayerCurrentTime}
           className="relative w-full h-1.5 bg-gray-300 rounded-full cursor-pointer group"
         >
-          <div className="absolute top-0 left-0 h-full bg-green-500 rounded-full" style={{ width: `${progress}%` }} />
+          <div className={`absolute top-0 left-0 h-full ${barColor} rounded-full`} style={{ width: `${progress}%` }} />
           <div
-            className="absolute h-3 w-3 bg-green-500 rounded-full -mt-1 transform transition-transform group-hover:scale-125"
+            className={`absolute h-3 w-3 ${barColor} rounded-full -mt-1 transform transition-transform group-hover:scale-125`}
             style={{ left: `calc(${progress}% - 6px)` }}
           />
         </div>
@@ -166,19 +202,8 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
           <span>{formatTime(duration)}</span>
         </div>
       </div>
-      
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={changeSpeed}
-        onKeyPress={(e) => handleKeyPress(e, changeSpeed)}
-        className="flex-shrink-0 mx-3 flex items-center justify-center h-8 w-8 rounded-full bg-gray-200 text-sm font-bold text-gray-600 cursor-pointer transition-colors hover:bg-gray-300"
-        aria-label={`Mudar velocidade. Velocidade atual: ${playbackRate}x`}
-      >
-        {playbackRate}x
-      </div>
 
-      <div className="relative flex items-center">
+      <div className="relative flex items-center ml-4">
         <div
           role="button"
           tabIndex={0}
@@ -199,7 +224,6 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ id, src, onEnded }) => {
               value={volume}
               onChange={handleVolumeChange}
               className="w-4 h-20 accent-green-500"
-              // FIX: Replaced invalid CSS `writingMode` value 'bt-lr' with a valid one, 'vertical-lr', to resolve the TypeScript error.
               style={{ writingMode: 'vertical-lr', WebkitAppearance: 'slider-vertical' }}
               aria-orientation="vertical"
             />

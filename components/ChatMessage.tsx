@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Message, MessageType } from '../types';
 import { BOT_AVATAR } from '../constants';
 import AudioPlayer from './AudioPlayer';
@@ -8,9 +8,10 @@ interface ChatMessageProps {
   onCtaClick: () => void;
   onOptionClick: (option: 'yes' | 'no') => void;
   onEnded?: () => void;
+  isFirstMessage?: boolean;
 }
 
-const ChatMessage: React.FC<ChatMessageProps> = ({ message, onCtaClick, onOptionClick, onEnded }) => {
+const ChatMessage: React.FC<ChatMessageProps> = ({ message, onCtaClick, onOptionClick, onEnded, isFirstMessage = false }) => {
   const isBot = message.from === 'bot';
 
   if (message.type === MessageType.OPTIONS) {
@@ -47,9 +48,22 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onCtaClick, onOption
   const renderContent = () => {
     switch (message.type) {
       case MessageType.IMAGE:
-        return <img src={message.imageUrl} alt="content" className="rounded-lg max-w-full h-auto" />;
+        const [isLoaded, setIsLoaded] = useState(false);
+        return (
+            <div className="relative rounded-lg overflow-hidden" style={{ minHeight: '150px' }}>
+                <img
+                    src={message.imageUrl}
+                    alt="content"
+                    onLoad={() => setIsLoaded(true)}
+                    className={`rounded-lg max-w-full h-auto w-full transition-opacity duration-500 ease-in-out ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+                />
+                {!isLoaded && (
+                    <div className="absolute inset-0 w-full h-full shimmer-bg rounded-lg"></div>
+                )}
+            </div>
+        );
       case MessageType.AUDIO:
-        return message.audioUrl ? <AudioPlayer id={message.id} src={message.audioUrl} onEnded={onEnded} /> : null;
+        return message.audioUrl ? <AudioPlayer id={message.id} src={message.audioUrl} onEnded={onEnded} autoPlay={isBot && !isFirstMessage} /> : null;
       case MessageType.CTA:
         return (
             <div 
